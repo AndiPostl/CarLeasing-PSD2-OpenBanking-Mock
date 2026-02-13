@@ -1,0 +1,61 @@
+#%RAML 1.0
+title: CarLeasing Non-PSD2 Mock API
+description: |
+  Non-PSD2 mock endpoints for CarLeasing ASPSP testing.
+  Used by run-e2e-loan-flow.sh before calling PSD2 Consent and Loan APIs.
+  - GET /mock/token returns a placeholder Bearer token.
+  - GET /mock/approve simulates PSU approval and marks a consent as valid.
+version: v1
+baseUri: http://localhost:8081
+mediaType: application/json
+
+protocols: [ HTTP ]
+
+types:
+  TokenResponse:
+    type: object
+    properties:
+      access_token: string
+      token_type: string
+  ApproveResponse:
+    type: object
+    properties:
+      message: string
+
+/mock:
+  /token:
+    get:
+      description: |
+        Returns a mock Bearer token. No authentication required.
+        Use the access_token in Authorization header for PSD2 Consent and Loan APIs.
+      responses:
+        200:
+          body:
+            application/json:
+              type: TokenResponse
+              example: |
+                {
+                  "access_token": "mock-token-carleasing",
+                  "token_type": "Bearer"
+                }
+
+  /approve:
+    get:
+      description: |
+        Simulates PSU approval. Marks the consent as valid for the given consentId.
+        Call this after POST /v1/consents and before GET /v1/loans.
+      queryParameters:
+        consent:
+          description: Consent ID to approve (from create consent response)
+          type: string
+          required: true
+          example: "consent-test-001"
+      responses:
+        200:
+          body:
+            application/json:
+              type: ApproveResponse
+              example: |
+                {
+                  "message": "Consent approved. Use GET /v1/loans with this consentId."
+                }

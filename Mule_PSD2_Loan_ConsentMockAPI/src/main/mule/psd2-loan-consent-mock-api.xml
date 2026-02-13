@@ -1,0 +1,644 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <http:listener-config name="httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="8081" protocol="HTTP"/>
+    </http:listener-config>
+
+    <os:object-store name="consentStatusStore" persistent="false" entryTtl="1" entryTtlUnit="DAYS" expirationInterval="3600000"/>
+
+    <!-- PSD2 Specs: Consent = Berlin Group NextGenPSD2 Account Information Service (AIS); Loans = Savings and Loans Extended API -->
+    <!-- Consent/AIS: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml -->
+    <!-- Loans: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml -->
+
+    <!-- Step 1: Get mock token [PAMA Mock] -->
+    <flow name="1-mock-token-Non-PSD2-Mock">
+        <http:listener path="/mock/token" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/mock/token">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="/mock/token"/>
+        <set-payload value='{"access_token":"mock-token-carleasing","token_type":"Bearer"}'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'1. Get mock token [PAMA Mock]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: (PAMA Mock – not in Berlin Group spec)\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Token obtained\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 1 log"/>
+    </flow>
+
+    <!-- Step 2: Create consent [PSD2 Account Information Service (AIS)] -->
+    <flow name="2-create-consent-PSD2-Account-Information-Service-AIS">
+        <http:listener path="/v1/consents" config-ref="httpListenerConfig" allowedMethods="POST" doc:name="/v1/consents">
+            <http:response statusCode="201">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="/v1/consents"/>
+        <ee:transform doc:name="Format request body">
+            <ee:variables>
+                <ee:set-variable variableName="requestBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <os:store key="consent-test-001" objectStore="consentStatusStore">
+            <os:value><![CDATA[#[ 'received' ]]]></os:value>
+        </os:store>
+        <set-payload value='{
+          "consentId": "consent-test-001",
+          "consentStatus": "received",
+          "_links": {
+            "scaRedirect": {"href": "http://localhost:8081/mock/approve?consent=consent-test-001"},
+            "self": {"href": "/v1/consents/consent-test-001"},
+            "status": {"href": "/v1/consents/consent-test-001/status"}
+          }
+        }'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'2. Create consent [PSD2 Account Information Service (AIS)]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml\n\n' ++
+'  Request:  POST ' ++ vars.requestPath ++ '\n' ++
+'  RequestBody:\n' ++ (vars.requestBody default '(empty)') ++ '\n\n' ++
+'  Response: HTTP 201\n' ++
+'  Summary:  Consent created\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 2 log"/>
+    </flow>
+
+    <!-- Step 2a: Start consent authorisation [PSD2 Account Information Service (AIS)] -->
+    <flow name="2a-start-consent-authorisation-PSD2-Account-Information-Service-AIS">
+        <http:listener path="/v1/consents/{consentId}/authorisations" config-ref="httpListenerConfig" allowedMethods="POST" doc:name="/v1/consents/{consentId}/authorisations">
+            <http:response statusCode="201">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/consents/' ++ (attributes.uriParams.consentId default attributes.uriParams.consentid default 'consent-test-001') ++ '/authorisations']"/>
+        <ee:transform doc:name="Format request body">
+            <ee:variables>
+                <ee:set-variable variableName="requestBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <set-payload value='{"authorisationId":"auth-mock-001","scaStatus":"received","_links":{"scaRedirect":{"href":"http://localhost:8081/mock/approve?consent=consent-test-001"},"self":{"href":"/v1/consents/consent-test-001/authorisations/auth-mock-001"}}}'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'2a. Start consent authorisation [PSD2 Account Information Service (AIS)]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml\n\n' ++
+'  Request:  POST ' ++ vars.requestPath ++ '\n' ++
+'  RequestBody:\n' ++ (vars.requestBody default '(empty)') ++ '\n\n' ++
+'  Response: HTTP 201\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 2a log"/>
+    </flow>
+
+    <!-- Step 2b: Get consent authorisation [PSD2 Account Information Service (AIS)] -->
+    <flow name="2b-get-consent-authorisation-PSD2-Account-Information-Service-AIS">
+        <http:listener path="/v1/consents/{consentId}/authorisations/{authorisationId}" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/consents/{consentId}/authorisations/{authorisationId}">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/consents/' ++ (attributes.uriParams.consentId default attributes.uriParams.consentid) ++ '/authorisations/' ++ (attributes.uriParams.authorisationId default attributes.uriParams.authorisationid)]"/>
+        <os:retrieve key="#[attributes.uriParams.consentId]" objectStore="consentStatusStore">
+            <os:default-value><![CDATA[#[ 'received' ]]]></os:default-value>
+        </os:retrieve>
+        <set-payload value="#[output application/json --- { scaStatus: if (payload == 'valid') 'finalised' else 'received', authorisationId: attributes.uriParams.authorisationId }]"/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'2b. Get consent authorisation [PSD2 Account Information Service (AIS)]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 2b log"/>
+    </flow>
+
+    <!-- Step 3: Simulate PSU approval [PAMA Mock] -->
+    <flow name="3-mock-approve-Non-PSD2-PAMA-Mock">
+        <http:listener path="/mock/approve" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/mock/approve">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="consentId" value="#[attributes.queryParams.consent default attributes.queryParams.Consent default 'consent-test-001']"/>
+        <set-variable variableName="requestPath" value="#['/mock/approve?consent=' ++ vars.consentId]"/>
+        <os:store key="#[vars.consentId]" objectStore="consentStatusStore">
+            <os:value><![CDATA[#[ 'valid' ]]]></os:value>
+        </os:store>
+        <set-payload value='{"message":"Consent approved. Use GET /v1/loans with this consentId."}'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'3. Simulate PSU approval [PAMA Mock]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: (PAMA Mock – not in Berlin Group spec)\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Consent approved\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 3 log"/>
+    </flow>
+
+    <!-- Step 4: Get consent [PSD2 Account Information Service (AIS)] -->
+    <flow name="4-get-consent-PSD2-Account-Information-Service-AIS">
+        <http:listener path="/v1/consents/{consentId}" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/consents/{consentId}">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="consentIdFromPath" value="#[attributes.uriParams.consentId default attributes.uriParams.consentid default 'consent-test-001']"/>
+        <set-variable variableName="requestPath" value="#['/v1/consents/' ++ vars.consentIdFromPath]"/>
+        <os:retrieve key="#[vars.consentIdFromPath]" objectStore="consentStatusStore">
+            <os:default-value><![CDATA[#[ 'received' ]]]></os:default-value>
+        </os:retrieve>
+        <set-payload value="#[output application/json --- { consentStatus: payload, consentId: vars.consentIdFromPath, access: { availableAccounts: 'allAccounts', allPsd2: 'allAccounts' }, recurringIndicator: false, validUntil: '2026-12-31', frequencyPerDay: 4 }]"/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'4. Get consent [PSD2 Account Information Service (AIS)]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Get consent\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 4 log"/>
+    </flow>
+
+    <!-- Step 5: Get loan list [PSD2 Savings and Loans API v1.1.0] -->
+    <flow name="5-get-loan-list-PSD2-Savings-And-Loans">
+        <http:listener path="/v1/loans" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/loans">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="/v1/loans"/>
+        <try>
+            <!-- Case-insensitive consentId header (value may be String or Array; do not use [0] on String) -->
+            <set-variable variableName="consentIdHeader" value="#[do { var h = ((attributes.headers default {}) mapObject ((v, k) -> {(lower(k)): v})).'consentid' --- (if (h is Array) h[0] else h) } default 'consent-test-001']"/>
+            <set-variable variableName="consentIdHeader" value="#[trim(vars.consentIdHeader)]"/>
+            <os:retrieve key="#[vars.consentIdHeader]" objectStore="consentStatusStore">
+                <os:default-value><![CDATA[#[ 'received' ]]]></os:default-value>
+            </os:retrieve>
+            <choice>
+                <when expression="#[(payload as String) == 'valid']">
+                    <set-payload value='{
+                      "loanAccounts": [
+                        {
+                          "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e81a",
+                          "iban": "DE2310010010123456788",
+                          "currency": "EUR",
+                          "ownerName": "Max Mustermann",
+                          "name": "VW Group ID.4 Finance",
+                          "product": "Car loan",
+                          "cashAccountType": "LOAN",
+                          "interest": [{"type": "FIXD", "rate": [{"percentage": "3.9"}], "toDateTime": "2031-06-01T23:59:59"}],
+                          "relatedDates": {"contractStartDate": "2024-06-01", "contractEndDate": "2031-06-01"},
+                          "collateralsInvolved": true,
+                          "balances": [{"balanceAmount": {"currency": "EUR", "amount": "-35000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"}],
+                          "_links": {
+                            "balances": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/balances"},
+                            "transactions": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/transactions"}
+                          }
+                        },
+                        {
+                          "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e816",
+                          "currency": "EUR",
+                          "ownerName": "Max Mustermann",
+                          "name": "VW Group Golf Finance",
+                          "product": "Car loan",
+                          "cashAccountType": "LOAN",
+                          "relatedDates": {"contractStartDate": "2025-01-15", "contractEndDate": "2030-01-15"},
+                          "balances": [{"balanceAmount": {"currency": "EUR", "amount": "-12000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"}],
+                          "_links": {
+                            "balances": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e816/balances"},
+                            "transactions": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e816/transactions"}
+                          }
+                        }
+                      ]
+                    }'/>
+                </when>
+                <otherwise>
+                    <set-payload value="#[output application/json --- { tppMessages: [{ category: 'ERROR', code: 'CONSENT_INVALID', text: 'Consent not yet valid. Call GET /mock/approve?consent=' ++ (vars.consentIdHeader default 'consent-test-001') ++ ' first.' }] }]"/>
+                    <set-variable variableName="httpStatus" value="403"/>
+                </otherwise>
+            </choice>
+            <ee:transform doc:name="Format log body">
+                <ee:variables>
+                    <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <ee:transform doc:name="Build log message">
+                <ee:variables>
+                    <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'5. Get loan list [PSD2 Savings and Loans API v1.1.0]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP ' ++ (vars.httpStatus default 200) ++ '\n' ++
+'  Summary:  Loan list\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 5 log"/>
+        </try>
+    </flow>
+
+    <!-- Step 6: Get loan details [PSD2 Savings and Loans API v1.1.0] -->
+    <flow name="6-get-loan-details-PSD2-Savings-And-Loans">
+        <http:listener path="/v1/loans/{loanAccountId}" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/loans/{loanAccountId}">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/loans/' ++ (attributes.uriParams.loanAccountId default attributes.uriParams.loanaccountid)]"/>
+        <set-payload value="#[output application/json --- { loanAccount: { resourceId: attributes.uriParams.loanAccountId, iban: 'DE2310010010123456788', currency: 'EUR', ownerName: 'Max Mustermann', name: 'VW Group ID.4 Finance', product: 'Car loan', cashAccountType: 'LOAN', status: 'enabled', interest: [{ 'type': 'FIXD', rate: [{ percentage: '3.9' }], toDateTime: '2031-06-01T23:59:59' }], relatedDates: { contractStartDate: '2024-06-01', contractEndDate: '2031-06-01' }, collateralsInvolved: true, balances: [{ balanceAmount: { currency: 'EUR', amount: '-35000.00' }, balanceType: 'closingBooked', referenceDate: '2026-02-13' }], '_links': { balances: { href: '/v1/loans/' ++ attributes.uriParams.loanAccountId ++ '/balances' }, transactions: { href: '/v1/loans/' ++ attributes.uriParams.loanAccountId ++ '/transactions' } } } }]"/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'6. Get loan details [PSD2 Savings and Loans API v1.1.0]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Loan details\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 6 log"/>
+    </flow>
+
+    <!-- Step 7: Get loan balances [PSD2 Savings and Loans API v1.1.0] -->
+    <flow name="7-get-loan-balances-PSD2-Savings-And-Loans">
+        <http:listener path="/v1/loans/{loanAccountId}/balances" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/loans/{loanAccountId}/balances">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/loans/' ++ (attributes.uriParams.loanAccountId default attributes.uriParams.loanaccountid) ++ '/balances']"/>
+        <set-payload value='{
+          "loanAccount": {"iban": "DE2310010010123456788"},
+          "balances": [
+            {"balanceAmount": {"currency": "EUR", "amount": "-35000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"},
+            {"balanceAmount": {"currency": "EUR", "amount": "-35250.00"}, "balanceType": "expected", "lastChangeDateTime": "2026-02-13T10:30:00.000Z"}
+          ]
+        }'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'7. Get loan balances [PSD2 Savings and Loans API v1.1.0]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Loan balances\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 7 log"/>
+    </flow>
+
+    <!-- Step 8: Get loan transactions [PSD2 Savings and Loans API v1.1.0] -->
+    <flow name="8-get-loan-transactions-PSD2-Savings-And-Loans">
+        <http:listener path="/v1/loans/{loanAccountId}/transactions" config-ref="httpListenerConfig" allowedMethods="GET" doc:name="/v1/loans/{loanAccountId}/transactions">
+            <http:response statusCode="200">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/loans/' ++ (attributes.uriParams.loanAccountId default attributes.uriParams.loanaccountid) ++ '/transactions']"/>
+        <set-payload value='{
+          "loanAccount": {"iban": "DE2310010010123456788"},
+          "transactions": {
+            "booked": [
+              {"transactionId": "1234567", "transactionAmount": {"currency": "EUR", "amount": "520"}, "bookingDate": "2025-12-15", "valueDate": "2025-12-16", "remittanceInformationUnstructured": "VW Group monthly installment Dec 2025"},
+              {"transactionId": "1234568", "transactionAmount": {"currency": "EUR", "amount": "520"}, "bookingDate": "2026-01-15", "valueDate": "2026-01-16", "remittanceInformationUnstructured": "VW Group monthly installment Jan 2026"},
+              {"transactionId": "1234569", "transactionAmount": {"currency": "EUR", "amount": "-12.50"}, "bookingDate": "2026-02-01", "valueDate": "2026-02-01", "remittanceInformationUnstructured": "VW Group interest Feb 2026"}
+            ],
+            "pending": [
+              {"transactionId": "1234570", "transactionAmount": {"currency": "EUR", "amount": "520"}, "valueDate": "2026-03-15", "remittanceInformationUnstructured": "VW Group monthly installment Mar 2026"}
+            ]
+          }
+        }'/>
+        <ee:transform doc:name="Format log body">
+            <ee:variables>
+                <ee:set-variable variableName="logBody"><![CDATA[%dw 2.0
+import try, orElse from dw::Runtime
+output application/java
+fun parseJson(s) = read(s, "application/json")
+fun toJson(v) = write(v, "application/json")
+---
+if (payload == null)
+  '(empty)'
+else do {
+  var normalized = if (payload is String) (try(() -> parseJson(payload)) orElse (() -> payload)) else payload
+  ---
+  toJson(normalized)
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'8. Get loan transactions [PSD2 Savings and Loans API v1.1.0]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml\n\n' ++
+'  Request:  GET ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 200\n' ++
+'  Summary:  Loan transactions\n\n' ++
+'  ResponseBody:\n' ++ vars.logBody ++ '\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 8 log"/>
+    </flow>
+
+    <!-- Step 9: Delete consent [PSD2 Account Information Service (AIS)] -->
+    <flow name="9-delete-consent-PSD2-Account-Information-Service-AIS">
+        <http:listener path="/v1/consents/{consentId}" config-ref="httpListenerConfig" allowedMethods="DELETE" doc:name="/v1/consents/{consentId}">
+            <http:response statusCode="204">
+                <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            </http:response>
+        </http:listener>
+        <set-variable variableName="requestPath" value="#['/v1/consents/' ++ (attributes.uriParams.consentId default attributes.uriParams.consentid)]"/>
+        <try>
+            <os:remove key="#[attributes.uriParams.consentId]" objectStore="consentStatusStore"/>
+            <set-payload value=""/>
+            <error-handler>
+                <on-error-continue type="OS:KEY_NOT_FOUND">
+                    <set-payload value=""/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <ee:transform doc:name="Build log message">
+            <ee:variables>
+                <ee:set-variable variableName="logMessage"><![CDATA[%dw 2.0
+output application/java
+---
+'\n------------------------------------------------------------------------------------------------\n' ++
+'9. Delete consent [PSD2 Account Information Service (AIS)]\n' ++
+'\n------------------------------------------------------------------------------------------------\n' ++
+'  API Spec: https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml\n\n' ++
+'  Request:  DELETE ' ++ vars.requestPath ++ '\n' ++
+'  Response: HTTP 204\n' ++
+'  Summary:  Consent deleted\n'
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" message="#[vars.logMessage]" doc:name="Step 9 log"/>
+    </flow>
+</mule>

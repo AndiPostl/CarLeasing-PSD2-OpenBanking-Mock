@@ -1,0 +1,124 @@
+#%RAML 1.0
+title: CarLeasing PSD2 Consent API
+description: |
+  PSD2 Account Information Service (AIS) Consents for CarLeasing ASPSP.
+  Based on Berlin Group NextGenPSD2 Core PSD2 Compliancy.
+  Matches run-e2e-loan-flow.sh and Postman collection (create, get, delete consent).
+version: v1
+baseUri: http://localhost:8081
+mediaType: application/json
+
+protocols: [ HTTP ]
+
+traits:
+  psd2-auth-headers:
+    headers:
+      Authorization:
+        description: Bearer token (e.g. from GET /mock/token)
+        type: string
+        example: "Bearer mock-token-carleasing"
+      X-Request-ID:
+        description: Unique request ID (UUID)
+        type: string
+        required: true
+      PSU-IP-Address:
+        description: PSU IP address
+        type: string
+        example: "192.168.1.1"
+      Accept:
+        description: Accept response format
+        type: string
+        default: application/json
+
+types:
+  ConsentAccess:
+    type: object
+    properties:
+      availableAccounts?: string
+      allPsd2?: string
+  CreateConsentRequest:
+    type: object
+    required: [ access, validUntil ]
+    properties:
+      access: ConsentAccess
+      recurringIndicator: boolean
+      validUntil: string
+      frequencyPerDay: number
+  ConsentResponse:
+    type: object
+    properties:
+      consentId: string
+      consentStatus: string
+      access?: ConsentAccess
+      recurringIndicator?: boolean
+      validUntil?: string
+      frequencyPerDay?: number
+      _links?: object
+
+/v1/consents:
+  post:
+    description: Create a new consent. Run GET /mock/approve?consent={consentId} to set status to valid before calling Loan API.
+    is: [ psd2-auth-headers ]
+    headers:
+      Content-Type:
+        type: string
+        default: application/json
+      TPP-Redirect-URI:
+        description: TPP redirect URI for SCA
+        type: string
+        example: "https://tpp.example/callback"
+    body:
+      application/json:
+        type: CreateConsentRequest
+        example: |
+          {
+            "access": {
+              "availableAccounts": "allAccounts",
+              "allPsd2": "allAccounts"
+            },
+            "recurringIndicator": false,
+            "validUntil": "2026-12-31",
+            "frequencyPerDay": 4
+          }
+    responses:
+      201:
+        body:
+          application/json:
+            type: ConsentResponse
+            example: |
+              {
+                "consentId": "consent-test-001",
+                "consentStatus": "received",
+                "_links": {
+                  "scaRedirect": {"href": "http://localhost:8081/mock/approve?consent=consent-test-001"},
+                  "self": {"href": "/v1/consents/consent-test-001"},
+                  "status": {"href": "/v1/consents/consent-test-001/status"}
+                }
+              }
+
+  /{consentId}:
+    get:
+      description: Get consent status and details.
+      is: [ psd2-auth-headers ]
+      responses:
+        200:
+          body:
+            application/json:
+              type: ConsentResponse
+              example: |
+                {
+                  "consentStatus": "valid",
+                  "consentId": "consent-test-001",
+                  "access": {
+                    "availableAccounts": "allAccounts",
+                    "allPsd2": "allAccounts"
+                  },
+                  "recurringIndicator": false,
+                  "validUntil": "2026-12-31",
+                  "frequencyPerDay": 4
+                }
+    delete:
+      description: Revoke (delete) the consent.
+      is: [ psd2-auth-headers ]
+      responses:
+        204:

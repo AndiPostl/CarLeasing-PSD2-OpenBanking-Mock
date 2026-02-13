@@ -1,0 +1,221 @@
+#%RAML 1.0
+title: CarLeasing PSD2 Loan API
+description: |
+  PSD2 Savings and Loans API for CarLeasing ASPSP.
+  Based on Berlin Group NextGenPSD2 Extended Value-added Service (Savings and Loans v1.1.0).
+  Sample data matches run-e2e-loan-flow.sh and mock implementation.
+version: v1
+baseUri: http://localhost:8081
+mediaType: application/json
+
+protocols: [ HTTP ]
+
+traits:
+  psd2-headers:
+    headers:
+      Authorization:
+        description: Bearer token (e.g. from GET /mock/token)
+        type: string
+        example: "Bearer mock-token-carleasing"
+      consentId:
+        description: Consent ID (valid after GET /mock/approve)
+        type: string
+        required: true
+        example: "consent-test-001"
+      X-Request-ID:
+        description: Unique request ID (UUID)
+        type: string
+        required: true
+      PSU-IP-Address:
+        description: PSU IP address
+        type: string
+        example: "192.168.1.1"
+      Accept:
+        description: Accept response format
+        type: string
+        default: application/json
+
+types:
+  LoanAccountListItem:
+    type: object
+    properties:
+      resourceId: string
+      iban?: string
+      currency: string
+      ownerName: string
+      name: string
+      product: string
+      cashAccountType: string
+      interest?: array
+      relatedDates?: object
+      collateralsInvolved?: boolean
+      balances?: array
+      _links?: object
+  LoanListResponse:
+    type: object
+    properties:
+      loanAccounts: LoanAccountListItem[]
+  LoanDetailsResponse:
+    type: object
+    properties:
+      loanAccount: object
+  BalancesResponse:
+    type: object
+    properties:
+      loanAccount?: object
+      balances: array
+  TransactionsResponse:
+    type: object
+    properties:
+      loanAccount?: object
+      transactions: object
+  TppMessage:
+    type: object
+    properties:
+      category: string
+      code: string
+      text: string
+  ErrorResponse:
+    type: object
+    properties:
+      tppMessages: TppMessage[]
+
+/v1/loans:
+  get:
+    description: List loan accounts for the authorised consent.
+    is: [ psd2-headers ]
+    responses:
+      200:
+        body:
+          application/json:
+            type: LoanListResponse
+            example: |
+              {
+                "loanAccounts": [
+                  {
+                    "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e81a",
+                    "iban": "DE2310010010123456788",
+                    "currency": "EUR",
+                    "ownerName": "Max Mustermann",
+                    "name": "VW Group ID.4 Finance",
+                    "product": "Car loan",
+                    "cashAccountType": "LOAN",
+                    "interest": [{"type": "FIXD", "rate": [{"percentage": "3.9"}], "toDateTime": "2031-06-01T23:59:59"}],
+                    "relatedDates": {"contractStartDate": "2024-06-01", "contractEndDate": "2031-06-01"},
+                    "collateralsInvolved": true,
+                    "balances": [{"balanceAmount": {"currency": "EUR", "amount": "-35000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"}],
+                    "_links": {
+                      "balances": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/balances"},
+                      "transactions": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/transactions"}
+                    }
+                  },
+                  {
+                    "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e816",
+                    "currency": "EUR",
+                    "ownerName": "Max Mustermann",
+                    "name": "VW Group Golf Finance",
+                    "product": "Car loan",
+                    "cashAccountType": "LOAN",
+                    "relatedDates": {"contractStartDate": "2025-01-15", "contractEndDate": "2030-01-15"},
+                    "balances": [{"balanceAmount": {"currency": "EUR", "amount": "-12000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"}],
+                    "_links": {
+                      "balances": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e816/balances"},
+                      "transactions": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e816/transactions"}
+                    }
+                  }
+                ]
+              }
+      403:
+        body:
+          application/json:
+            type: ErrorResponse
+            example: |
+              {
+                "tppMessages": [{
+                  "category": "ERROR",
+                  "code": "CONSENT_INVALID",
+                  "text": "Consent not yet valid. Call GET /mock/approve?consent=consent-test-001 first."
+                }]
+              }
+
+  /{loanAccountId}:
+    get:
+      description: Get details of one loan account.
+      is: [ psd2-headers ]
+      responses:
+        200:
+          body:
+            application/json:
+              type: LoanDetailsResponse
+              example: |
+                {
+                  "loanAccount": {
+                    "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e81a",
+                    "iban": "DE2310010010123456788",
+                    "currency": "EUR",
+                    "ownerName": "Max Mustermann",
+                    "name": "VW Group ID.4 Finance",
+                    "product": "Car loan",
+                    "cashAccountType": "LOAN",
+                    "status": "enabled",
+                    "interest": [{"type": "FIXD", "rate": [{"percentage": "3.9"}], "toDateTime": "2031-06-01T23:59:59"}],
+                    "relatedDates": {"contractStartDate": "2024-06-01", "contractEndDate": "2031-06-01"},
+                    "collateralsInvolved": true,
+                    "balances": [{"balanceAmount": {"currency": "EUR", "amount": "-35000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"}],
+                    "_links": {
+                      "balances": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/balances"},
+                      "transactions": {"href": "/v1/loans/3dc3d5b3-7023-4848-9853-f5400a64e81a/transactions"}
+                    }
+                  }
+                }
+
+    /balances:
+      get:
+        description: Get balances for one loan account.
+        is: [ psd2-headers ]
+        responses:
+          200:
+            body:
+              application/json:
+                type: BalancesResponse
+                example: |
+                  {
+                    "loanAccount": {"iban": "DE2310010010123456788"},
+                    "balances": [
+                      {"balanceAmount": {"currency": "EUR", "amount": "-35000.00"}, "balanceType": "closingBooked", "referenceDate": "2026-02-13"},
+                      {"balanceAmount": {"currency": "EUR", "amount": "-35250.00"}, "balanceType": "expected", "lastChangeDateTime": "2026-02-13T10:30:00.000Z"}
+                    ]
+                  }
+
+    /transactions:
+      get:
+        description: Get transactions for one loan account. Use dateFrom and dateTo as in e2e script.
+        is: [ psd2-headers ]
+        queryParameters:
+          dateFrom:
+            type: string
+            format: date
+            example: "2020-01-01"
+          dateTo:
+            type: string
+            format: date
+            example: "2026-12-31"
+        responses:
+          200:
+            body:
+              application/json:
+                type: TransactionsResponse
+                example: |
+                  {
+                    "loanAccount": {"iban": "DE2310010010123456788"},
+                    "transactions": {
+                      "booked": [
+                        {"transactionId": "1234567", "transactionAmount": {"currency": "EUR", "amount": "520"}, "bookingDate": "2025-12-15", "valueDate": "2025-12-16", "remittanceInformationUnstructured": "VW Group monthly installment Dec 2025"},
+                        {"transactionId": "1234568", "transactionAmount": {"currency": "EUR", "amount": "520"}, "bookingDate": "2026-01-15", "valueDate": "2026-01-16", "remittanceInformationUnstructured": "VW Group monthly installment Jan 2026"},
+                        {"transactionId": "1234569", "transactionAmount": {"currency": "EUR", "amount": "-12.50"}, "bookingDate": "2026-02-01", "valueDate": "2026-02-01", "remittanceInformationUnstructured": "VW Group interest Feb 2026"}
+                      ],
+                      "pending": [
+                        {"transactionId": "1234570", "transactionAmount": {"currency": "EUR", "amount": "520"}, "valueDate": "2026-03-15", "remittanceInformationUnstructured": "VW Group monthly installment Mar 2026"}
+                      ]
+                    }
+                  }

@@ -1,0 +1,13 @@
+# Exclude NextGenPSD2 (Berlin Group upstream specs – not part of this project)
+nextgenpsd2/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary / container
+.zip_container/
+
+# Mule build output (optional; Mule_PSD2_Loan_ConsentMockAPI has its own .gitignore)
+# Uncomment if you want to ignore target at root level:
+# **/target/
