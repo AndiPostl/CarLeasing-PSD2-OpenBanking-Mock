@@ -13,15 +13,15 @@ Postman collection for the CarLeasing ASPSP APIs: Consents, Consent Authorisatio
 
 Run requests in order; request names include step numbers:
 
-**1. Get Mock Token** (Auth) – mock only; for real API use your OAuth2 flow.
-**2. Create consent** (Consents) – body: `access.allPsd2`, `validUntil: 2026-12-31` (matches `run-e2e-loan-flow.sh`).
-**3. Simulate approval** (Mock – Simulate PSU approval) – sets consent to valid.
-**4. Get consent** (Consents) – verify status is `valid`.
-**5. Get loan list** (Loans) – then
-**6. Get loan details**
-**7. Get loan balances**
-**8. Get loan transactions**.
-**9. Delete consent** (Consents) – optional.
+1. **Get Mock Token** (Auth) – mock only; for real API use your OAuth2 flow.
+2. **Create consent** (Consents) – body: `access.allPsd2`, `validUntil: 2026-12-31` (matches `run-e2e-loan-flow.sh`).
+3. **Simulate approval** (Mock – Simulate PSU approval) – sets consent to valid.
+4. **Get consent** (Consents) – verify status is `valid`.
+5. **Get loan list** (Loans) – then
+6. **Get loan details**
+7. **Get loan balances**
+8. **Get loan transactions**.
+9. **Delete consent** (Consents) – optional.
 
 Variables `consentId` and `loanAccountId` are set from responses. Default `loanAccountId` = `3dc3d5b3-7023-4848-9853-f5400a64e81a`. Use `dateFrom` = `2020-01-01`, `dateTo` = `2026-12-31` for transactions.
 
