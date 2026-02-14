@@ -1,10 +1,33 @@
-# CarLeasing PSD2 – Open Banking Mock & E2E Flow
+# MuleSoft Open Banking PSD2 CarLeasing –  Mock & E2E Flow 
 
-CarLeasing acts as an ASPSP (Account Servicing Payment Service Provider). This repo contains a **MuleSoft mock API** (PSD2 Consent + Loan APIs), **RAML API specs**, and **e2e test scripts** (bash, Python) and a **Postman collection** that run the full flow against the mock.
+CarLeasing acts as an ASPSP (Account Servicing Payment Service Provider). 
+This repo contains a 
+1. **MuleSoft mock API** (PSD2 Consent + Loan APIs)
+2. **RAML API specs**
+3. **e2e test scripts** (bash, Python)
+4. **Postman collection** that run the full flow against the mock.<br><br>
+
+**PSD2 APIs are based on the berlin group nextgenpsd2 spec**  
+https://gitlab.com/the-berlin-group/nextgenpsd2 
+
+**PSD2 Account Information Service (AIS) consents**  
+https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Core%20PSD2%20Compliancy/psd2-api_v1.3.16-2025-11-27.openapi.yaml
+
+**PSD2 Savings and Loans API v1.1.0**  
+https://gitlab.com/the-berlin-group/nextgenpsd2/-/blob/main/Extended%20Value-added%20Service/archive/psd2-api-savings-and-loans%20v1.1.0-2022-05-05v1.openapi.yaml
+ <br><br>
 
 ## High-level flow
 
-1. **Get token** (mock) → 2. **Create consent** (PSD2 AIS) → 3. **Simulate PSU approval** (mock) → 4. **Get consent** (verify valid) → 5. **Get loan list** → 6. **Get loan details** → 7. **Get loan balances** → 8. **Get loan transactions** → 9. **Delete consent** (optional).
+1. **Get token** (mock) →
+2. **Create consent** (PSD2 AIS) →
+3. **Simulate PSU approval** (mock) →
+4. **Get consent** (verify valid) →
+5. **Get loan list** →
+6. **Get loan details** →
+7. **Get loan balances** →
+8. **Get loan transactions** →
+9. **Delete consent** (optional).
 
 ```mermaid
 sequenceDiagram
@@ -45,10 +68,12 @@ sequenceDiagram
 
 From the repo root:
 
+**Option A - import to Anypoint Studio and start** 
+
+**Option B - build and deploy via control plane** 
 ```bash
 cd Mule_PSD2_Loan_ConsentMockAPI
 mvn clean package
-mvn mule:run
 ```
 
 The API listens on **http://localhost:8081**. Leave this terminal running.
